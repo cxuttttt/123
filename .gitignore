@@ -1,0 +1,9 @@
+/.cache/
+/dist/
+/data/
+/runtime/
+/test-results/
+__pycache__/
+*.pyc
+*.user
+

@@ -1,0 +1,76 @@
+name: Build and verify portable Windows agent
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pocketagent-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Assemble pinned upstream binaries
+        run: python scripts/build.py
+      - name: Test with Windows PowerShell 5 and a clean PATH
+        shell: powershell
+        run: ./tests/windows-smoke.ps1 -Bundle dist/PocketAgent
+      - name: Save validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-validation
+          path: test-results
+          if-no-files-found: warn
+      - name: Package a clean portable archive
+        shell: pwsh
+        run: |
+          if (Test-Path dist/PocketAgent/data) { throw 'User data leaked into release staging' }
+          if (Test-Path dist/PocketAgent/workspaces) { throw 'Test project leaked into release staging' }
+          Compress-Archive -Path dist/PocketAgent -DestinationPath dist/PocketAgent-windows-x64.zip -CompressionLevel Optimal
+          (Get-FileHash dist/PocketAgent-windows-x64.zip -Algorithm SHA256).Hash.ToLower() + '  PocketAgent-windows-x64.zip' |
+            Set-Content -Encoding ascii dist/SHA256SUMS.txt
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: PocketAgent-windows-x64
+          path: |
+            dist/PocketAgent-windows-x64.zip
+            dist/SHA256SUMS.txt
+          compression-level: 0
+      - name: Publish verified preview
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = @'
+          Windows x64 portable preview built from the commit shown below.
+          Real upstream OpenCode tools were exercised through a local synthetic API.
+          See the windows-validation artifact for clean-PATH, Unicode-path and drive-relocation checks.
+          Personal model credentials are not included; configure your own API in /connect.
+          Windows 10/11 consumer hardware and real paid providers still require user testing.
+          '@
+          $notes += "`n`nSource commit: $env:GITHUB_SHA"
+          $notes | Set-Content -Encoding utf8 release-notes.md
+          $releaseTag = "portable-$env:GITHUB_RUN_NUMBER"
+          gh release view $releaseTag --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $releaseTag --repo $env:GITHUB_REPOSITORY --prerelease --target $env:GITHUB_SHA --title 'PocketAgent portable preview' --notes-file release-notes.md
+            if ($LASTEXITCODE -ne 0) { throw 'Release creation failed' }
+          } else {
+            gh release edit $releaseTag --repo $env:GITHUB_REPOSITORY --prerelease --title 'PocketAgent portable preview' --notes-file release-notes.md
+            if ($LASTEXITCODE -ne 0) { throw 'Release update failed' }
+          }
+          gh release upload $releaseTag dist/PocketAgent-windows-x64.zip dist/SHA256SUMS.txt --repo $env:GITHUB_REPOSITORY --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Release asset upload failed' }

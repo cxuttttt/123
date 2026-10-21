@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "model": "myprovider/your-model-id",
+  "provider": {
+    "myprovider": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "我的模型接口",
+      "options": { "baseURL": "https://your-provider.example/v1" },
+      "models": {
+        "your-model-id": {
+          "name": "我的模型",
+          "limit": { "context": 128000, "output": 8192 }
+        }
+      }
+    }
+  }
+}
+
