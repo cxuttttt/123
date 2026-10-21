@@ -21,11 +21,13 @@ try {
         $portable = Join-Path ($drive + '\便携 测试') (Split-Path $bundlePath -Leaf)
         New-Item -ItemType Directory -Path (Join-Path $portable 'workspaces\default') -Force | Out-Null
         $launcher = Join-Path $portable 'PocketAgent.exe'
-        $doctor = & $launcher --project ($portable + '\workspaces\default\') --doctor 2>&1
+        # Windows PowerShell 5's native argument marshaller mishandles quoted
+        # arguments ending in a backslash; use the canonical directory here.
+        $doctor = & $launcher --project (Join-Path $portable 'workspaces\default') --doctor 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Doctor failed: $doctor" }
         $doctorText = $doctor -join "`n"
         $doctorText | Set-Content -Encoding utf8 (Join-Path $reportRoot ($drive.TrimEnd(':') + '-doctor.txt'))
-        if ($doctorText -notmatch [Regex]::Escape($drive)) { throw 'Current drive was not used' }
+        if ($doctorText -notmatch [Regex]::Escape('Root: ' + $drive + '\')) { throw 'Current drive was not used by the launcher' }
         if ($doctorText -notmatch 'data[\\/]share[\\/]opencode') { throw 'Portable data path not used' }
         if ($drive -eq 'R:') {
             'portable-state-survives' | Set-Content -Encoding utf8 (Join-Path $portable 'data\state-marker.txt')
